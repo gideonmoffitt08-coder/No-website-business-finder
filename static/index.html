@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>No-Website Business Finder — Gideon Moffitt Web Design</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">Gideon Moffitt Web Design</span>
+    </div>
+    <span class="tagline">No-Website Business Finder</span>
+  </header>
+
+  <main>
+    <section class="search-panel">
+      <form id="search-form">
+        <div class="field">
+          <label for="city">City</label>
+          <input id="city" name="city" type="text" placeholder="e.g. Asheville, NC" required />
+        </div>
+        <div class="field">
+          <label for="niche">Business niche</label>
+          <input id="niche" name="niche" type="text" placeholder="e.g. house cleaners" required />
+        </div>
+        <button id="go" type="submit">Search</button>
+      </form>
+      <p class="hint">Uses Claude with live web search. Expect 20–60 seconds per run.</p>
+    </section>
+
+    <section id="status" class="status" aria-live="polite"></section>
+
+    <section class="results-panel">
+      <div class="results-head">
+        <h2 id="results-title">Results</h2>
+        <button id="export" type="button" disabled>Export to CSV</button>
+      </div>
+      <div id="results" class="results"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>Model: claude-sonnet-4-5-20250929 · Tool: web_search_20250305</span>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
