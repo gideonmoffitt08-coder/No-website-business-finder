@@ -130,13 +130,13 @@ def api_search():
         try:
             message = client.messages.create(
                 model=MODEL,
-                max_tokens=4096,
+                max_tokens=2048,
                 system=SYSTEM_PROMPT,
                 tools=[
                     {
                         "type": "web_search_20250305",
                         "name": "web_search",
-                        "max_uses": 8,
+                        "max_uses": 5,
                     }
                 ],
                 messages=[{"role": "user", "content": user_prompt}],
