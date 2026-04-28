@@ -101,11 +101,17 @@ form.addEventListener("submit", async (e) => {
   setStatus(`Searching the web for ${niche} in ${city}…`, "loading");
 
   try {
-    const res = await fetch("/api/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ city, niche }),
-    });
+    const controller = new AbortController();
+const timeout = setTimeout(() => controller.abort(), 120000);
+
+const res = await fetch("/api/search", {
+  signal: controller.signal,
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ city, niche }),
+});
+clearTimeout(timeout);
+
     const data = await res.json();
     if (!res.ok) {
       setStatus(data.error || `Request failed (${res.status}).`, "error");
@@ -118,8 +124,13 @@ form.addEventListener("submit", async (e) => {
     const qn = (data.queries || []).length;
     setStatus(`Done. ${currentResults.length} candidate(s) · ${qn} web search${qn === 1 ? "" : "es"} used.`, "");
     render(currentResults);
-  } catch (err) {
+    } catch (err) {
+if (err.name === "AbortError") {
+    setStatus("Request timed out. Please try again.", "error");
+  } else {
     setStatus(`Network error: ${err.message}`, "error");
+  }
+
   } finally {
     goBtn.disabled = false;
   }
