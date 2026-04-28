@@ -7,6 +7,7 @@ local businesses without a website. Model: claude-sonnet-4-5-20250929.
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 import anthropic
@@ -120,7 +121,6 @@ def api_search():
         "Follow the system instructions exactly and return the JSON object."
     )
 
-        import time
 
     max_retries = 3
     retry_delay = 5
