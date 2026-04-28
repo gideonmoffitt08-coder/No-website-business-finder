@@ -1,23 +1,21 @@
-"""No-Website Business Finder — Flask backend.
-
-Uses the Anthropic API with the server-side `web_search_20250305` tool to find
-local businesses without a website. Model: claude-sonnet-4-5-20250929.
-"""
+"""No-Website Business Finder — Flask backend with background jobs."""
 
 import json
 import os
 import re
 import time
+import threading
+import uuid
 from pathlib import Path
 
 import anthropic
 from flask import Flask, jsonify, request, send_from_directory
 
 STATIC_DIR = Path(__file__).parent / "static"
-
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 
 MODEL = "claude-sonnet-4-5-20250929"
+jobs = {}
 
 SYSTEM_PROMPT = """You are a local business research assistant helping a web designer \
 find small businesses that do NOT appear to have a website.
@@ -62,7 +60,6 @@ results; Medium when only social pages exist; Low when you are unsure.
 
 
 def _extract_json(text: str) -> dict:
-    """Pull the first JSON object out of the model's final text."""
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     raw = fenced.group(1) if fenced else None
     if raw is None:
@@ -94,6 +91,52 @@ def _search_queries_used(message) -> list:
     return queries
 
 
+def run_search(job_id, city, niche, api_key):
+    jobs[job_id]["status"] = "running"
+    client = anthropic.Anthropic(api_key=api_key)
+    user_prompt = (
+        f"City: {city}\n"
+        f"Niche: {niche}\n\n"
+        "Find local businesses in this city matching this niche that do NOT have a website. "
+        "Follow the system instructions exactly and return the JSON object."
+    )
+    max_retries = 3
+    message = None
+    for attempt in range(max_retries):
+        try:
+            message = client.messages.create(
+                model=MODEL,
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            break
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < max_retries - 1:
+                time.sleep(5)
+                continue
+            jobs[job_id] = {"status": "error", "error": f"Anthropic API error: {e.message}"}
+            return
+        except anthropic.APIError as e:
+            jobs[job_id] = {"status": "error", "error": f"Anthropic API error: {str(e)}"}
+            return
+
+    if message is None:
+        jobs[job_id] = {"status": "error", "error": "API overloaded after retries."}
+        return
+
+    parsed = _extract_json(_final_text(message))
+    businesses = parsed.get("businesses", []) if isinstance(parsed, dict) else []
+    jobs[job_id] = {
+        "status": "done",
+        "city": city,
+        "niche": niche,
+        "queries": _search_queries_used(message),
+        "businesses": businesses,
+    }
+
+
 @app.route("/")
 def index():
     return send_from_directory(str(STATIC_DIR), "index.html")
@@ -104,71 +147,26 @@ def api_search():
     data = request.get_json(silent=True) or {}
     city = (data.get("city") or "").strip()
     niche = (data.get("niche") or "").strip()
-
     if not city or not niche:
         return jsonify({"error": "Both 'city' and 'niche' are required."}), 400
-
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY environment variable is not set."}), 500
 
-    client = anthropic.Anthropic(api_key=api_key)
-
-    user_prompt = (
-        f"City: {city}\n"
-        f"Niche: {niche}\n\n"
-        "Find local businesses in this city matching this niche that do NOT have a website. "
-        "Follow the system instructions exactly and return the JSON object."
-    )
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {"status": "pending"}
+    thread = threading.Thread(target=run_search, args=(job_id, city, niche, api_key))
+    thread.daemon = True
+    thread.start()
+    return jsonify({"job_id": job_id})
 
 
-    max_retries = 3
-    retry_delay = 5
-    message = None
-
-    for attempt in range(max_retries):
-        try:
-            message = client.messages.create(
-                model=MODEL,
-                max_tokens=2048,
-                system=SYSTEM_PROMPT,
-                tools=[
-                    {
-                        "type": "web_search_20250305",
-                        "name": "web_search",
-                        "max_uses": 5,
-                    }
-                ],
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            break
-        except anthropic.APIStatusError as e:
-            if e.status_code == 529 and attempt < max_retries - 1:
-                time.sleep(retry_delay)
-                continue
-            return jsonify({"error": f"Anthropic API error: {e.message}"}), 502
-        except anthropic.APIError as e:
-            return jsonify({"error": f"Anthropic API error: {str(e)}"}), 502
-
-    if message is None:
-        return jsonify({"error": "API overloaded after retries. Please try again."}), 502
-
-
-    if message.stop_reason not in ("end_turn", "stop_sequence"):
-        return jsonify({
-            "error": f"Model stopped with reason '{message.stop_reason}' before returning results.",
-            "queries": _search_queries_used(message),
-        }), 502
-
-    parsed = _extract_json(_final_text(message))
-    businesses = parsed.get("businesses", []) if isinstance(parsed, dict) else []
-
-    return jsonify({
-        "city": city,
-        "niche": niche,
-        "queries": _search_queries_used(message),
-        "businesses": businesses,
-    })
+@app.route("/api/status/<job_id>", methods=["GET"])
+def api_status(job_id):
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found."}), 404
+    return jsonify(job)
 
 
 if __name__ == "__main__":
