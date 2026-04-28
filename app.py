@@ -120,24 +120,39 @@ def api_search():
         "Follow the system instructions exactly and return the JSON object."
     )
 
-    try:
-        message = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=[
-                {
-                    "type": "web_search_20250305",
-                    "name": "web_search",
-                    "max_uses": 8,
-                }
-            ],
-            messages=[{"role": "user", "content": user_prompt}],
-        )
-    except anthropic.APIStatusError as e:
-        return jsonify({"error": f"Anthropic API error: {e.message}"}), 502
-    except anthropic.APIError as e:
-        return jsonify({"error": f"Anthropic API error: {str(e)}"}), 502
+        import time
+
+    max_retries = 3
+    retry_delay = 5
+    message = None
+
+    for attempt in range(max_retries):
+        try:
+            message = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=[
+                    {
+                        "type": "web_search_20250305",
+                        "name": "web_search",
+                        "max_uses": 8,
+                    }
+                ],
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            break
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            return jsonify({"error": f"Anthropic API error: {e.message}"}), 502
+        except anthropic.APIError as e:
+            return jsonify({"error": f"Anthropic API error: {str(e)}"}), 502
+
+    if message is None:
+        return jsonify({"error": "API overloaded after retries. Please try again."}), 502
+
 
     if message.stop_reason not in ("end_turn", "stop_sequence"):
         return jsonify({
