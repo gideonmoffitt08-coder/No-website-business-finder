@@ -25,7 +25,6 @@ function renderCard(b) {
   const source = b.source && /^https?:\/\//i.test(b.source)
     ? `<a href="${escapeHtml(b.source)}" target="_blank" rel="noopener noreferrer">${escapeHtml(b.source)}</a>`
     : escapeHtml(b.source || "Unknown");
-
   return `
     <article class="card">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
@@ -88,6 +87,39 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
+async function pollJob(jobId, city, niche) {
+  const maxWait = 180000;
+  const interval = 4000;
+  const start = Date.now();
+
+  while (Date.now() - start < maxWait) {
+    await new Promise(res => setTimeout(res, interval));
+    try {
+      const res = await fetch(`/api/status/${jobId}`);
+      const data = await res.json();
+
+      if (data.status === "done") {
+        currentResults = data.businesses || [];
+        currentCity = data.city || city;
+        currentNiche = data.niche || niche;
+        resultsTitle.textContent = `Results — ${niche} in ${city}`;
+        const qn = (data.queries || []).length;
+        setStatus(`Done. ${currentResults.length} candidate(s) · ${qn} web search${qn === 1 ? "" : "es"} used.`, "");
+        render(currentResults);
+        return;
+      } else if (data.status === "error") {
+        setStatus(data.error || "Search failed.", "error");
+        return;
+      }
+      // still running, keep polling
+    } catch (err) {
+      setStatus(`Network error: ${err.message}`, "error");
+      return;
+    }
+  }
+  setStatus("Search timed out. Please try again.", "error");
+}
+
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const city = document.getElementById("city").value.trim();
@@ -101,36 +133,19 @@ form.addEventListener("submit", async (e) => {
   setStatus(`Searching the web for ${niche} in ${city}…`, "loading");
 
   try {
-    const controller = new AbortController();
-const timeout = setTimeout(() => controller.abort(), 120000);
-
-const res = await fetch("/api/search", {
-  signal: controller.signal,
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ city, niche }),
-});
-clearTimeout(timeout);
-
+    const res = await fetch("/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ city, niche }),
+    });
     const data = await res.json();
     if (!res.ok) {
       setStatus(data.error || `Request failed (${res.status}).`, "error");
       return;
     }
-    currentResults = data.businesses || [];
-    currentCity = data.city || city;
-    currentNiche = data.niche || niche;
-    resultsTitle.textContent = `Results — ${niche} in ${city}`;
-    const qn = (data.queries || []).length;
-    setStatus(`Done. ${currentResults.length} candidate(s) · ${qn} web search${qn === 1 ? "" : "es"} used.`, "");
-    render(currentResults);
-    } catch (err) {
-if (err.name === "AbortError") {
-    setStatus("Request timed out. Please try again.", "error");
-  } else {
+    await pollJob(data.job_id, city, niche);
+  } catch (err) {
     setStatus(`Network error: ${err.message}`, "error");
-  }
-
   } finally {
     goBtn.disabled = false;
   }
