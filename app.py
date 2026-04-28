@@ -98,7 +98,8 @@ def run_search(job_id, city, niche, api_key):
         f"City: {city}\n"
         f"Niche: {niche}\n\n"
         "Find local businesses in this city matching this niche that do NOT have a website. "
-        "Follow the system instructions exactly and return the JSON object."
+    "You MUST use the web_search tool to find businesses. Do not respond without searching first. Follow the system instructions exactly and return the JSON object."
+
     )
     max_retries = 3
     message = None
