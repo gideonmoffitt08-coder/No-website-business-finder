@@ -109,7 +109,7 @@ def run_search(job_id, city, niche, api_key):
                 model=MODEL,
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
-                tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+                tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}],
                 messages=[{"role": "user", "content": user_prompt}],
             )
             break
